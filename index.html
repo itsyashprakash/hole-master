@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hole Collector</title>
+    <link rel="manifest" href="./manifest.json"><script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Prevent default touch actions like scrolling when dragging */
+        }
+        .game-board {
+            position: relative;
+            width: 100%; /* Make it responsive */
+            max-width: 600px; /* Max width for larger screens */
+            height: 400px;
+            background-color: #e0f2fe; /* Light blue sky */
+            border: 2px solid #0ea5e9; /* Sky blue border */
+            border-radius: 12px;
+            overflow: hidden;
+            margin: auto; /* Center the board */
+            cursor: grab;
+        }
+        .hole {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background-color: #1e293b; /* Dark slate */
+            border-radius: 50%;
+            border: 4px solid #334155; /* Slightly lighter slate for depth */
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: grabbing;
+            user-select: none; /* Prevent text selection when dragging */
+            z-index: 10;
+        }
+        .objective {
+            position: absolute;
+            width: 30px; /* Adjusted for emoji size */
+            height: 30px; /* Adjusted for emoji size */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px; /* Size of the emoji character */
+            text-align: center;
+            z-index: 5;
+            /* No background or border here, emoji provides visuals */
+        }
+
+        .bomb {
+            position: absolute;
+            width: 30px; 
+            height: 30px;
+            background-color: #4b5563; 
+            border-radius: 50%;
+            border: 3px solid #1f2937; 
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 6; 
+        }
+        .bomb::after { 
+            content: '';
+            width: 8px;
+            height: 8px;
+            background-color: #ef4444; 
+            border-radius: 50%;
+            border: 1px solid #991b1b; 
+        }
+
+        .stats-bar {
+            background-color: #f1f5f9; 
+            border-bottom: 2px solid #cbd5e1; 
+        }
+        .message-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            border-radius: 12px; 
+        }
+        .joystick-area {
+            width: 120px;
+            height: 120px;
+            background-color: rgba(200, 200, 200, 0.3);
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .joystick-knob {
+            width: 60px;
+            height: 60px;
+            background-color: rgba(100, 100, 100, 0.7);
+            border-radius: 50%;
+            position: absolute;
+            cursor: grab;
+            border: 2px solid rgba(50,50,50,0.8);
+        }
+    </style>
+</head>
+<body class="bg-slate-800 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div id="gameContainer" class="w-full max-w-2xl mx-auto p-4 bg-slate-700 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-center mb-4 text-sky-400">Hole Collector</h1>
+
+        <div id="statsContainer" class="stats-bar flex justify-around items-center mb-4 p-3 rounded-lg shadow">
+            <div>Time: <span id="timerDisplay" class="font-semibold text-xl text-amber-400">3:00</span></div>
+            <div>Score: <span id="scoreDisplay" class="font-semibold text-xl text-emerald-400">0</span></div>
+        </div>
+
+        <div id="gameBoard" class="game-board shadow-lg">
+            <div id="hole" class="hole"></div>
+            </div>
+
+        <div id="joystickContainer" class="mt-6 flex flex-col items-center">
+            <p class="mb-2 text-sm text-slate-400">Control the Hole:</p>
+            <div id="joystickArea" class="joystick-area">
+                <div id="joystickKnob" class="joystick-knob"></div>
+            </div>
+        </div>
+        
+        <div id="messageDisplay" class="message-overlay hidden">
+            <div class="bg-slate-800 p-8 rounded-lg shadow-xl text-center">
+                <h2 id="messageText" class="text-2xl font-bold mb-4">Game Over!</h2>
+                <p id="finalScoreText" class="text-lg mb-6">Your final score: 0</p>
+                <button id="restartButton" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-150">
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const gameBoard = document.getElementById('gameBoard');
+        const hole = document.getElementById('hole');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const messageDisplay = document.getElementById('messageDisplay');
+        const messageText = document.getElementById('messageText');
+        const finalScoreText = document.getElementById('finalScoreText');
+        const restartButton = document.getElementById('restartButton');
+        
+        // Joystick Elements
+        const joystickArea = document.getElementById('joystickArea');
+        const joystickKnob = document.getElementById('joystickKnob');
+
+        // Game State
+        let score = 0;
+        let timeLeft = 180; // 3 minutes in seconds
+        let timerInterval;
+        let objectives = [];
+        let bombs = []; 
+        const MAX_OBJECTIVES = 5;
+        const MAX_BOMBS = 3; 
+        let isGameOver = false;
+        let holeRadius = 30; 
+        let objectiveRadius = 15; // Adjusted to better match emoji visual size
+        let bombRadius = 15; 
+        // NEW: Array of emoji items
+        const objectiveItems = ['🍣', '🍕', '🍔', '🍎', '🍩', '🧸', '🚗', '⚽', '⭐', '💎', '🎁', '🎈', '🍦', '🍓', '🍌'];
+        let gameLoopId;
+
+        // Joystick State
+        let isJoystickActive = false;
+        let joystickCenterX, joystickCenterY;
+        let holeSpeed = 2.0; 
+
+        // --- Initialization ---
+        function initGame() {
+            console.log("Initializing game...");
+            isGameOver = false;
+            score = 0;
+            timeLeft = 180;
+            
+            objectives.forEach(obj => {
+                if (obj.element && obj.element.parentNode) {
+                    obj.element.parentNode.removeChild(obj.element);
+                }
+            });
+            objectives = [];
+
+            bombs.forEach(bomb => {
+                if (bomb.element && bomb.element.parentNode) {
+                    bomb.element.parentNode.removeChild(bomb.element);
+                }
+            });
+            bombs = [];
+
+            updateScoreDisplay();
+            updateTimerDisplay();
+
+            if(messageDisplay) messageDisplay.classList.add('hidden');
+            
+            if (hole && gameBoard) {
+                hole.style.left = (gameBoard.offsetWidth / 2 - holeRadius) + 'px';
+                hole.style.top = (gameBoard.offsetHeight / 2 - holeRadius) + 'px';
+            }
+            
+            if (joystickArea) {
+                const joystickAreaRect = joystickArea.getBoundingClientRect();
+                joystickCenterX = joystickAreaRect.left + joystickAreaRect.width / 2;
+                joystickCenterY = joystickAreaRect.top + joystickAreaRect.height / 2;
+            }
+            
+            if (joystickKnob && joystickArea) {
+                joystickKnob.style.left = (joystickArea.offsetWidth / 2 - joystickKnob.offsetWidth / 2) + 'px';
+                joystickKnob.style.top = (joystickArea.offsetHeight / 2 - joystickKnob.offsetHeight / 2) + 'px';
+                joystickKnob.style.transform = `translate(0px, 0px)`;
+            }
+
+            for (let i = 0; i < MAX_OBJECTIVES; i++) {
+                createObjective();
+            }
+            for (let i = 0; i < MAX_BOMBS; i++) {
+                createBomb();
+            }
+
+            clearInterval(timerInterval); 
+            timerInterval = setInterval(updateTimer, 1000);
+
+            if (gameLoopId) cancelAnimationFrame(gameLoopId);
+            gameLoopId = requestAnimationFrame(gameLoop);
+            console.log("Game initialized.");
+        }
+        
+        // --- Joystick Controls (Identical to previous version) ---
+        function getJoystickOffset(event) {
+            const touch = event.touches ? event.touches[0] : event;
+            if (typeof joystickCenterX !== 'number' || typeof joystickCenterY !== 'number') {
+                if (joystickArea) {
+                    const joystickAreaRect = joystickArea.getBoundingClientRect();
+                    joystickCenterX = joystickAreaRect.left + joystickAreaRect.width / 2;
+                    joystickCenterY = joystickAreaRect.top + joystickAreaRect.height / 2;
+                } else { return {x: 0, y: 0}; }
+            }
+            let knobX = touch.clientX - joystickCenterX;
+            let knobY = touch.clientY - joystickCenterY;
+            const maxDist = joystickArea ? (joystickArea.offsetWidth / 2 - (joystickKnob ? joystickKnob.offsetWidth / 2 : 0)) : 1;
+            const dist = Math.sqrt(knobX * knobX + knobY * knobY);
+            if (dist > maxDist && maxDist > 0) {
+                knobX = (knobX / dist) * maxDist;
+                knobY = (knobY / dist) * maxDist;
+            }
+            if(joystickKnob) joystickKnob.style.transform = `translate(${knobX}px, ${knobY}px)`;
+            return { x: maxDist > 0 ? knobX / maxDist : 0, y: maxDist > 0 ? knobY / maxDist : 0 };
+        }
+        function onJoystickStart(event) {
+            event.preventDefault();
+            isJoystickActive = true;
+            if(joystickKnob) joystickKnob.style.cursor = 'grabbing';
+            if (joystickArea) {
+                const joystickAreaRect = joystickArea.getBoundingClientRect();
+                joystickCenterX = joystickAreaRect.left + joystickAreaRect.width / 2;
+                joystickCenterY = joystickAreaRect.top + joystickAreaRect.height / 2;
+            }
+        }
+        function onJoystickMove(event) {
+            if (!isJoystickActive || isGameOver) return;
+            event.preventDefault();
+            getJoystickOffset(event); 
+        }
+        function onJoystickEnd(event) {
+            if (event.touches && event.touches.length > 0) return;
+            if (event.type === 'mouseup' || (event.type === 'touchend' && event.touches.length === 0)) {
+                event.preventDefault();
+                isJoystickActive = false;
+                if(joystickKnob) {
+                    joystickKnob.style.cursor = 'grab';
+                    joystickKnob.style.transform = `translate(0px, 0px)`;
+                }
+            }
+        }
+        if (joystickKnob) {
+            joystickKnob.addEventListener('mousedown', onJoystickStart);
+            joystickKnob.addEventListener('touchstart', onJoystickStart, { passive: false });
+        }
+        document.addEventListener('mousemove', onJoystickMove); 
+        document.addEventListener('mouseup', onJoystickEnd);
+        document.addEventListener('touchmove', onJoystickMove, { passive: false });
+        document.addEventListener('touchend', onJoystickEnd, { passive: false });
+
+        // --- Game Item Creation ---
+        function createObjective() {
+            if (isGameOver || !gameBoard) return; 
+
+            const objectiveEl = document.createElement('div');
+            objectiveEl.classList.add('objective');
+            // NEW: Select a random emoji item
+            const randomItemEmoji = objectiveItems[Math.floor(Math.random() * objectiveItems.length)];
+            objectiveEl.innerHTML = randomItemEmoji; // Set emoji as content
+            
+            placeItem(objectiveEl, objectiveRadius, objectives.concat(bombs)); 
+            
+            objectives.push({ 
+                element: objectiveEl, 
+                x: parseFloat(objectiveEl.style.left), 
+                y: parseFloat(objectiveEl.style.top), 
+                radius: objectiveRadius,
+                item: randomItemEmoji // Store the item type if needed later
+            });
+        }
+
+        function createBomb() {
+            if (isGameOver || !gameBoard) return;
+
+            const bombEl = document.createElement('div');
+            bombEl.classList.add('bomb');
+
+            placeItem(bombEl, bombRadius, objectives.concat(bombs)); 
+
+            bombs.push({ 
+                element: bombEl, 
+                x: parseFloat(bombEl.style.left), 
+                y: parseFloat(bombEl.style.top), 
+                radius: bombRadius, 
+                type: 'bomb' 
+            });
+        }
+        
+        function placeItem(itemElement, itemRadius, existingItems) {
+            if (!gameBoard) return;
+            const boardWidth = gameBoard.offsetWidth;
+            const boardHeight = gameBoard.offsetHeight;
+            if (boardWidth <= 0 || boardHeight <= 0) return;
+
+            let newX, newY, tooClose;
+            const maxAttempts = 30; 
+            let attempts = 0;
+
+            do {
+                tooClose = false;
+                newX = Math.random() * (boardWidth - itemRadius * 2); // itemRadius * 2 is item width/height
+                newY = Math.random() * (boardHeight - itemRadius * 2);
+
+                for (const existingItem of existingItems) {
+                    if (!existingItem.element) continue; 
+                    const dist = Math.sqrt(
+                        Math.pow(newX - existingItem.x, 2) + Math.pow(newY - existingItem.y, 2)
+                    );
+                    if (dist < (itemRadius + existingItem.radius + 5)) { 
+                        tooClose = true;
+                        break;
+                    }
+                }
+
+                if (hole) {
+                    const holeRect = hole.getBoundingClientRect();
+                    const gameBoardRect = gameBoard.getBoundingClientRect();
+                    const holeCenterX = (holeRect.left - gameBoardRect.left) + holeRect.width / 2;
+                    const holeCenterY = (holeRect.top - gameBoardRect.top) + holeRect.height / 2;
+                    
+                    const distToHole = Math.sqrt(
+                        Math.pow((newX + itemRadius) - holeCenterX, 2) + Math.pow((newY + itemRadius) - holeCenterY, 2)
+                    );
+                    if (distToHole < (holeRadius + itemRadius + 10)) { 
+                        tooClose = true;
+                    }
+                }
+                attempts++;
+            } while (tooClose && attempts < maxAttempts);
+            
+            if (attempts >= maxAttempts) {
+                console.warn("Could not find a suitable position for item after max attempts. Placing randomly.");
+            }
+
+            itemElement.style.left = newX + 'px';
+            itemElement.style.top = newY + 'px';
+            gameBoard.appendChild(itemElement);
+        }
+
+
+        // --- Game Logic Updates ---
+        function updateTimer() {
+            if (isGameOver) return;
+            timeLeft--;
+            updateTimerDisplay();
+            if (timeLeft <= 0) {
+                endGame("Time's up!");
+            }
+        }
+
+        function updateScoreDisplay() {
+            if(scoreDisplay) scoreDisplay.textContent = score;
+        }
+
+        function updateTimerDisplay() {
+            if(!timerDisplay) return;
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        function checkCollision(holeElement, itemData) {
+            if (!holeElement || !itemData || !itemData.element) return false;
+            const holeRect = holeElement.getBoundingClientRect(); 
+            const itemRect = itemData.element.getBoundingClientRect();
+            if (holeRect.width === 0 || itemRect.width === 0) return false;
+
+            const holeCenterX = holeRect.left + holeRect.width / 2;
+            const holeCenterY = holeRect.top + holeRect.height / 2;
+            const itemCenterX = itemRect.left + itemRect.width / 2;
+            const itemCenterY = itemRect.top + itemRect.height / 2;
+            
+            const dx = holeCenterX - itemCenterX;
+            const dy = holeCenterY - itemCenterY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Adjust collision sensitivity based on item type
+            const effectiveHoleRadius = itemData.type === 'bomb' ? holeRadius * 0.7 : holeRadius * 0.8;
+            return distance < (effectiveHoleRadius + itemData.radius);
+        }
+        
+        function moveHole() {
+            if (!isJoystickActive || isGameOver || !hole || !joystickKnob || !joystickArea) return;
+            const transform = joystickKnob.style.transform;
+            let dirX = 0, dirY = 0;
+            if (transform && transform.includes('translate')) {
+                const match = transform.match(/translate\(([-0-9.eE]+)px, ([-0-9.eE]+)px\)/); 
+                if (match) {
+                    const knobTranslateX = parseFloat(match[1]);
+                    const knobTranslateY = parseFloat(match[2]);
+                    const maxDist = joystickArea.offsetWidth / 2 - joystickKnob.offsetWidth / 2;
+                    if (maxDist > 0) { 
+                        dirX = knobTranslateX / maxDist;
+                        dirY = knobTranslateY / maxDist;
+                    }
+                }
+            }
+            let currentX = parseFloat(hole.style.left || '0');
+            let currentY = parseFloat(hole.style.top || '0');
+            let newX = currentX + dirX * holeSpeed;
+            let newY = currentY + dirY * holeSpeed;
+            if (gameBoard && hole) {
+                newX = Math.max(0, Math.min(gameBoard.offsetWidth - hole.offsetWidth, newX));
+                newY = Math.max(0, Math.min(gameBoard.offsetHeight - hole.offsetHeight, newY));
+            }
+            hole.style.left = newX + 'px';
+            hole.style.top = newY + 'px';
+        }
+
+        function gameLoop() {
+            if (isGameOver) {
+                if(gameLoopId) cancelAnimationFrame(gameLoopId);
+                return;
+            }
+            
+            moveHole(); 
+
+            for (let i = objectives.length - 1; i >= 0; i--) {
+                const obj = objectives[i];
+                if (checkCollision(hole, obj)) {
+                    if(obj.element && obj.element.parentNode) {
+                         obj.element.parentNode.removeChild(obj.element);
+                    }
+                    objectives.splice(i, 1);
+                    score++;
+                    updateScoreDisplay();
+                    createObjective(); 
+                }
+            }
+
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const bomb = bombs[i];
+                if (checkCollision(hole, bomb)) {
+                    endGame("Boom! You hit a bomb!");
+                    return; 
+                }
+            }
+
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+
+        function endGame(reason) {
+            if (isGameOver) return; 
+            console.log("Game ending:", reason);
+            isGameOver = true;
+            clearInterval(timerInterval);
+            if(gameLoopId) cancelAnimationFrame(gameLoopId);
+            
+            if(messageText) messageText.textContent = reason;
+            if(finalScoreText) finalScoreText.textContent = `Your final score: ${score}`;
+            if(messageDisplay) messageDisplay.classList.remove('hidden');
+            if(joystickKnob) joystickKnob.style.cursor = 'default'; 
+        }
+
+        // --- Event Listeners ---
+        if(restartButton) restartButton.addEventListener('click', initGame);
+        
+        window.addEventListener('resize', () => {
+            if (joystickArea && joystickArea.offsetParent) { 
+                 const joystickAreaRect = joystickArea.getBoundingClientRect();
+                 joystickCenterX = joystickAreaRect.left + joystickAreaRect.width / 2;
+                 joystickCenterY = joystickAreaRect.top + joystickAreaRect.height / 2;
+            }
+        });
+
+        // --- Start Game on Load ---
+        window.addEventListener('load', () => {
+            if (joystickArea && joystickArea.offsetParent) { 
+                 const joystickAreaRect = joystickArea.getBoundingClientRect();
+                 joystickCenterX = joystickAreaRect.left + joystickAreaRect.width / 2;
+                 joystickCenterY = joystickAreaRect.top + joystickAreaRect.height / 2;
+            } else {
+                console.warn("Joystick area not ready on load for center calculation.");
+            }
+            initGame();
+        });
+
+    </script>
+</body>
+</html>
